@@ -1,11 +1,12 @@
 import { notFound } from "next/navigation";
 import { AppShellWithSession } from "@/components/chrome/app-shell-with-session";
-import { Btn, Chip, HiVis, Pill, Seg } from "@/components/ui/primitives";
+import { Btn, Chip, HiVis, Pill } from "@/components/ui/primitives";
 import { ProjectTabs } from "@/components/screens/project-tabs";
 import { EmptyState } from "@/components/screens/empty-state";
 import { createClient } from "@/lib/supabase/server";
 import { requireContext } from "@/lib/auth/session";
 import { submitMtoForApproval } from "./actions";
+import { MtoWithPanel, type MtoLine, type LocationStock } from "@/components/screens/mto/mto-with-panel";
 
 export default async function ProjectMtoPage({
   params,
@@ -26,27 +27,94 @@ export default async function ProjectMtoPage({
 
   const { data: mtoState } = await supabase
     .from("mto_states")
-    .select("state, submitted_at, approved_at, rejected_at, rejection_reason")
+    .select("state")
     .eq("project_id", projectId)
     .maybeSingle();
 
-  const { data: lines } = await supabase
+  const { data: instances } = await supabase
+    .from("system_instances")
+    .select("id")
+    .eq("project_id", projectId)
+    .eq("organization_id", ctx.organizationId);
+
+  const instanceIds = (instances ?? []).map((i) => i.id);
+
+  const { data: rawLines } = await supabase
     .from("mto_lines")
-    .select("id, quantity, unit, unit_cost, wastage_pct, is_overridden, sub_assembly_alias")
+    .select(
+      "id, quantity, unit, unit_cost, wastage_pct, is_overridden, sub_assembly_alias, material_version:material_versions(id, material:materials(code, name, emoji, category:material_categories(name), supplier:suppliers(name)))",
+    )
     .eq("organization_id", ctx.organizationId)
-    .in(
-      "system_instance_id",
-      (
-        await supabase
-          .from("system_instances")
-          .select("id")
-          .eq("project_id", projectId)
-          .eq("organization_id", ctx.organizationId)
-      ).data?.map((i) => i.id) ?? [],
-    );
+    .in("system_instance_id", instanceIds.length > 0 ? instanceIds : ["00000000-0000-0000-0000-000000000000"]);
+
+  const lines: MtoLine[] = (rawLines ?? []).map((l) => {
+    const mv = l.material_version as unknown as
+      | {
+          material: {
+            code: string;
+            name: string;
+            emoji: string | null;
+            category: { name: string } | null;
+            supplier: { name: string } | null;
+          } | null;
+        }
+      | null;
+    return {
+      id: l.id,
+      alias: l.sub_assembly_alias,
+      quantity: Number(l.quantity),
+      unit: l.unit,
+      unit_cost: Number(l.unit_cost),
+      wastage_pct: l.wastage_pct != null ? Number(l.wastage_pct) : null,
+      is_overridden: l.is_overridden,
+      material_code: mv?.material?.code ?? null,
+      material_name: mv?.material?.name ?? null,
+      material_emoji: mv?.material?.emoji ?? null,
+      category_name: mv?.material?.category?.name ?? null,
+      supplier_name: mv?.material?.supplier?.name ?? null,
+    };
+  });
+
+  // Stock by location per material (read for the selected lines only)
+  const materialIds = Array.from(
+    new Set(
+      (rawLines ?? [])
+        .map((l) => (l.material_version as unknown as { material: { id?: string } | null } | null)?.material)
+        .filter(Boolean)
+        .map((m) => (m as { id?: string }).id)
+        .filter(Boolean),
+    ),
+  );
+  const locationStock: Record<string, LocationStock[]> = {};
+  if (materialIds.length > 0) {
+    const { data: stockRows } = await supabase
+      .from("stock_balances")
+      .select("material_id, location_id, balance, location:warehouse_locations(name)")
+      .eq("organization_id", ctx.organizationId)
+      .in("material_id", materialIds as string[]);
+    // map by mto_line_id is awkward — we keyed by the line ID. Since line→material is 1:1 by mv,
+    // we look up by material_id and dupe into each line.
+    const byMaterial: Record<string, LocationStock[]> = {};
+    (stockRows ?? []).forEach((r) => {
+      if (!r.material_id) return;
+      const loc = r.location as unknown as { name: string } | null;
+      byMaterial[r.material_id] ??= [];
+      byMaterial[r.material_id].push({
+        location_id: r.location_id ?? "",
+        location_name: loc?.name ?? "—",
+        balance: Number(r.balance ?? 0),
+      });
+    });
+    (rawLines ?? []).forEach((l) => {
+      const m = (l.material_version as unknown as { material: { id?: string } | null } | null)?.material;
+      const id = (m as { id?: string } | null)?.id;
+      if (id && byMaterial[id]) {
+        locationStock[l.id] = byMaterial[id];
+      }
+    });
+  }
 
   const state = mtoState?.state ?? "draft";
-  const total = (lines ?? []).reduce((s, l) => s + Number(l.quantity) * Number(l.unit_cost), 0);
 
   return (
     <AppShellWithSession crumbs={["Projects", project.name, "MTO"]}>
@@ -83,59 +151,14 @@ export default async function ProjectMtoPage({
 
       <ProjectTabs projectId={projectId} />
 
-      <div className="pl-filterbar">
-        <div style={{ fontSize: 13, fontWeight: 600 }}>MTO · Bill of Quantities</div>
-        <span style={{ color: "var(--ink-5)" }}>·</span>
-        <span className="tnum" style={{ fontSize: 12, color: "var(--ink-4)" }}>
-          {(lines ?? []).length} lines · ${total.toLocaleString(undefined, { maximumFractionDigits: 0 })}
-        </span>
-        <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8 }}>
-          <span style={{ fontSize: 11.5, color: "var(--ink-4)" }}>Group by</span>
-          <Seg items={["System", "Material", "Category", "Supplier"]} active="System" />
-        </div>
-      </div>
-
-      {(lines ?? []).length === 0 ? (
+      {lines.length === 0 ? (
         <EmptyState
           ico="list"
           title="No MTO lines yet"
           description="Add a system instance to the Working Set — its rule engine output will land here as MTO lines."
         />
       ) : (
-        <div className="pl-scroll" style={{ background: "var(--surface)" }}>
-          <table className="pl-table">
-            <thead>
-              <tr>
-                <th>Sub-assembly</th>
-                <th className="num">Qty</th>
-                <th>Unit</th>
-                <th className="num">Unit cost</th>
-                <th className="num">Wastage</th>
-                <th className="num">Line total</th>
-                <th />
-              </tr>
-            </thead>
-            <tbody>
-              {(lines ?? []).map((l) => (
-                <tr key={l.id}>
-                  <td>{l.sub_assembly_alias ?? "—"}</td>
-                  <td className="num mono">{Number(l.quantity).toLocaleString()}</td>
-                  <td>{l.unit}</td>
-                  <td className="num mono">${Number(l.unit_cost).toFixed(2)}</td>
-                  <td className="num mono" style={{ color: "var(--ink-4)" }}>
-                    {l.wastage_pct ?? 0}%
-                  </td>
-                  <td className="num mono" style={{ fontWeight: 600 }}>
-                    ${(Number(l.quantity) * Number(l.unit_cost)).toLocaleString(undefined, { maximumFractionDigits: 2 })}
-                  </td>
-                  <td>
-                    {l.is_overridden && <Pill variant="modified">overridden</Pill>}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <MtoWithPanel lines={lines} locationStock={locationStock} />
       )}
     </AppShellWithSession>
   );
