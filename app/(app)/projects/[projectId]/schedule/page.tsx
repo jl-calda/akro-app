@@ -1,11 +1,12 @@
-import { notFound } from "next/navigation";
 import Link from "next/link";
+import { notFound } from "next/navigation";
 import { AppShellWithSession } from "@/components/chrome/app-shell-with-session";
-import { Btn, Chip, Pill, ProgressBar, Seg } from "@/components/ui/primitives";
+import { Btn, Chip, Pill, Seg } from "@/components/ui/primitives";
 import { ProjectTabs } from "@/components/screens/project-tabs";
 import { EmptyState } from "@/components/screens/empty-state";
 import { createClient } from "@/lib/supabase/server";
 import { requireContext } from "@/lib/auth/session";
+import { GanttGrid, GanttLegend, type GanttTask } from "@/components/screens/schedule/gantt-grid";
 
 export default async function ProjectSchedulePage({
   params,
@@ -26,9 +27,34 @@ export default async function ProjectSchedulePage({
 
   const { data: tasks } = await supabase
     .from("tasks")
-    .select("id, name, start_date, end_date, duration_days, is_milestone, is_on_hold, manual_status, progress_percent, phase:phases(label, colour)")
+    .select(
+      "id, name, parent_task_id, start_date, end_date, is_milestone, is_on_hold, manual_status, progress_percent, phase:phases(label, colour), system_instance:system_instances(name)",
+    )
     .eq("project_id", projectId)
     .order("start_date");
+
+  const ganttTasks: GanttTask[] = (tasks ?? []).map((t) => {
+    const phase = t.phase as unknown as { label: string; colour: string } | null;
+    const inst = t.system_instance as unknown as { name: string | null } | null;
+    return {
+      id: t.id,
+      name: t.name,
+      group: inst?.name ?? "Project tasks",
+      phaseColour: phase?.colour ?? null,
+      phaseLabel: phase?.label ?? null,
+      startDate: t.start_date,
+      endDate: t.end_date,
+      progressPercent: t.progress_percent != null ? Number(t.progress_percent) : null,
+      isMilestone: t.is_milestone,
+      isOnHold: t.is_on_hold,
+      status:
+        t.manual_status === "done"
+          ? "done"
+          : (t.progress_percent ?? 0) > 0
+            ? "in_progress"
+            : "ready",
+    };
+  });
 
   return (
     <AppShellWithSession crumbs={["Projects", project.name, "Schedule"]}>
@@ -54,67 +80,14 @@ export default async function ProjectSchedulePage({
           description="Add a system instance to the Working Set. Tasks auto-generate from the System's schedule template (or phase defaults if no template)."
         />
       ) : (
-        <div className="pl-scroll" style={{ padding: 24 }}>
-          <table className="pl-table">
-            <thead>
-              <tr>
-                <th>Task</th>
-                <th>Phase</th>
-                <th style={{ width: 120 }}>Start</th>
-                <th style={{ width: 120 }}>End</th>
-                <th style={{ width: 200 }}>Progress</th>
-                <th style={{ width: 120 }}>Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              {(tasks ?? []).map((t) => {
-                const phase = t.phase as unknown as { label: string; colour: string } | null;
-                const status = t.is_on_hold ? "on hold" : t.manual_status ?? "—";
-                return (
-                  <tr key={t.id}>
-                    <td>
-                      {t.is_milestone && <span style={{ marginRight: 6 }}>◆</span>}
-                      <span style={{ fontWeight: 500 }}>{t.name}</span>
-                    </td>
-                    <td>
-                      {phase ? (
-                        <span
-                          style={{
-                            display: "inline-flex",
-                            alignItems: "center",
-                            gap: 5,
-                            fontSize: 11,
-                            color: phase.colour,
-                          }}
-                        >
-                          <span
-                            style={{
-                              width: 6,
-                              height: 6,
-                              borderRadius: 3,
-                              background: phase.colour,
-                            }}
-                          />
-                          {phase.label}
-                        </span>
-                      ) : "—"}
-                    </td>
-                    <td className="mono tnum">{t.start_date ?? "—"}</td>
-                    <td className="mono tnum">{t.end_date ?? "—"}</td>
-                    <td>
-                      <ProgressBar value={Number(t.progress_percent ?? 0)} max={100} />
-                      <div className="mono tnum" style={{ fontSize: 10, color: "var(--ink-4)", textAlign: "right", marginTop: 2 }}>
-                        {t.progress_percent ?? 0}%
-                      </div>
-                    </td>
-                    <td>
-                      <Pill variant={t.is_on_hold ? "modified" : "draft"} dot>{status}</Pill>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+        <div className="pl-scroll" style={{ padding: "18px 24px 24px" }}>
+          <div style={{ marginBottom: 12, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+            <span style={{ fontSize: 12, color: "var(--ink-4)" }}>
+              <span className="mono tnum">{ganttTasks.length}</span> tasks
+            </span>
+            <GanttLegend />
+          </div>
+          <GanttGrid tasks={ganttTasks} />
         </div>
       )}
     </AppShellWithSession>
