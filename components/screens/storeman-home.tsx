@@ -1,19 +1,29 @@
+import Link from "next/link";
 import { Chip, Pill, PlumbMark, ProgressBar } from "@/components/ui/primitives";
 import { Icon } from "@/components/ui/icon";
 import { MStat } from "@/components/chrome/mobile-shell";
 
-export function StoremanHomeScreen() {
-  const lists: Array<{
-    code: string;
-    name: string;
-    client: string;
-    due: string;
-    issued: number;
-    total: number;
-    urgent?: boolean;
-    fresh?: boolean;
-  }> = [];
+export type StoremanList = {
+  id: string;
+  code: string | null;
+  name: string;
+  client: string | null;
+  dueLabel: string;
+  issued: number;
+  total: number;
+  urgent?: boolean;
+  fresh?: boolean;
+};
 
+export function StoremanHomeScreen({
+  stats,
+  lists,
+  locationName,
+}: {
+  stats: { receipts: number; issued: number; returns: number; open: number; overdue: number };
+  lists: StoremanList[];
+  locationName: string;
+}) {
   return (
     <>
       <div style={{ padding: "14px 18px 12px", background: "var(--surface)", borderBottom: "1px solid var(--line)" }}>
@@ -29,7 +39,7 @@ export function StoremanHomeScreen() {
                 fontWeight: 500,
               }}
             >
-              Storeman · Main Yard
+              Storeman · {locationName}
             </div>
             <h1 style={{ margin: 0, fontSize: 18, fontWeight: 600, letterSpacing: "-0.02em" }}>
               Picking Lists
@@ -58,15 +68,24 @@ export function StoremanHomeScreen() {
           </span>
         </div>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 6 }}>
-          <MStat value="0" label="Receipts" />
-          <MStat value="0" label="Issued" />
-          <MStat value="0" label="Returns" />
-          <MStat value="0" label="Open" />
-          <MStat value="0" label="Overdue" />
+          <MStat value={stats.receipts} label="Receipts" />
+          <MStat value={stats.issued} label="Issued" />
+          <MStat value={stats.returns} label="Returns" />
+          <MStat value={stats.open} label="Open" />
+          <MStat value={stats.overdue} label="Overdue" tone={stats.overdue > 0 ? "warn" : undefined} />
         </div>
       </div>
 
-      <div style={{ flex: 1, padding: "12px 14px 12px", display: "flex", flexDirection: "column", gap: 8 }}>
+      <div
+        style={{
+          flex: 1,
+          padding: "12px 14px 12px",
+          display: "flex",
+          flexDirection: "column",
+          gap: 8,
+          overflow: "auto",
+        }}
+      >
         {lists.length === 0 ? (
           <div
             style={{
@@ -100,14 +119,17 @@ export function StoremanHomeScreen() {
           </div>
         ) : (
           lists.map((l) => (
-            <div
-              key={l.code}
+            <Link
+              key={l.id}
+              href={`/storeman/list/${l.id}`}
               style={{
                 padding: "11px 12px",
                 background: "var(--surface)",
                 border: "1px solid " + (l.urgent ? "var(--hivis-line)" : "var(--line)"),
                 borderRadius: 10,
                 position: "relative",
+                textDecoration: "none",
+                color: "inherit",
               }}
             >
               {l.urgent && (
@@ -124,7 +146,7 @@ export function StoremanHomeScreen() {
                 />
               )}
               <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
-                <Chip>{l.code}</Chip>
+                {l.code && <Chip>{l.code}</Chip>}
                 <span
                   style={{
                     fontSize: 11,
@@ -132,7 +154,7 @@ export function StoremanHomeScreen() {
                     fontWeight: 500,
                   }}
                 >
-                  {l.due}
+                  {l.dueLabel}
                 </span>
                 {l.fresh && <Pill variant="info">new</Pill>}
                 <span
@@ -142,14 +164,16 @@ export function StoremanHomeScreen() {
                   {l.issued}/{l.total}
                 </span>
               </div>
-              <div style={{ fontSize: 14, fontWeight: 600, lineHeight: 1.25, marginBottom: 2 }}>{l.name}</div>
-              <div style={{ fontSize: 11.5, color: "var(--ink-4)", marginBottom: 8 }}>{l.client}</div>
+              <div style={{ fontSize: 14, fontWeight: 600, lineHeight: 1.25, marginBottom: 2 }}>
+                {l.name}
+              </div>
+              <div style={{ fontSize: 11.5, color: "var(--ink-4)", marginBottom: 8 }}>{l.client ?? "—"}</div>
               <ProgressBar
                 value={l.issued}
-                max={l.total}
-                tone={l.issued === l.total ? "success" : l.urgent ? "warn" : ""}
+                max={l.total || 1}
+                tone={l.issued >= l.total ? "success" : l.urgent ? "warn" : ""}
               />
-            </div>
+            </Link>
           ))
         )}
       </div>
