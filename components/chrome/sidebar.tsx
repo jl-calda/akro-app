@@ -40,18 +40,22 @@ const NAV: NavItem[] = [
   { key: "settings", label: "Settings", ico: "settings", href: "/settings" },
 ];
 
+export type SidebarUser = { name: string; role: string };
+
 type Props = {
   collapsed: boolean;
   onToggle: () => void;
   org?: string;
-  user?: { name: string; role: string };
+  user?: SidebarUser;
+  onSignOut?: () => void;
 };
 
 export function Sidebar({
   collapsed,
   onToggle,
-  org = "Vertex Safety Solutions",
-  user = { name: "Reuben Mathers", role: "Admin · Vertex" },
+  org = "Workspace",
+  user = { name: "—", role: "—" },
+  onSignOut,
 }: Props) {
   const pathname = usePathname() ?? "/";
 
@@ -109,12 +113,23 @@ export function Sidebar({
         )}
       </nav>
       <div className="pl-side-foot">
-        <div className="pl-avatar">{user.name.split(" ").map((p) => p[0]).join("").slice(0, 2)}</div>
+        <div className="pl-avatar">{user.name.split(" ").map((p) => p[0]).join("").slice(0, 2).toUpperCase() || "U"}</div>
         <div className="pl-foot-text">
           <div style={{ color: "#1F2937", fontWeight: 500 }}>{user.name}</div>
           <div style={{ fontSize: 10.5, color: "#64748B" }}>{user.role}</div>
         </div>
-        <Icon name="settings" size={14} />
+        {onSignOut ? (
+          <button
+            onClick={onSignOut}
+            className="pl-collapse-btn"
+            title="Sign out"
+            aria-label="Sign out"
+          >
+            <Icon name="arrowR" size={13} />
+          </button>
+        ) : (
+          <Icon name="settings" size={14} />
+        )}
       </div>
     </aside>
   );

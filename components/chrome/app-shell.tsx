@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Sidebar } from "./sidebar";
+import { Sidebar, type SidebarUser } from "./sidebar";
 import { Topbar } from "./topbar";
 
 type Crumb = string | { label: string; href?: string };
@@ -13,11 +13,17 @@ export function AppShell({
   search,
   children,
   defaultDensity = "default",
+  user,
+  org,
+  onSignOut,
 }: {
   crumbs?: Crumb[];
   search?: string;
   children: React.ReactNode;
   defaultDensity?: Density;
+  user?: SidebarUser;
+  org?: string;
+  onSignOut?: () => void;
 }) {
   const [collapsed, setCollapsed] = useState(false);
   const [density] = useState<Density>(defaultDensity);
@@ -43,7 +49,7 @@ export function AppShell({
       data-density={density}
       data-sidebar={collapsed ? "collapsed" : "expanded"}
     >
-      <Sidebar collapsed={collapsed} onToggle={toggle} />
+      <Sidebar collapsed={collapsed} onToggle={toggle} user={user} org={org} onSignOut={onSignOut} />
       <Topbar crumbs={crumbs} search={search} />
       <div className="pl-main">{children}</div>
     </div>
