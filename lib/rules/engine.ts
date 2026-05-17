@@ -1,6 +1,12 @@
 import type { Expr } from "./ast";
 import { parse } from "./parser";
 import { evaluate, type Scope } from "./evaluator";
+import {
+  deriveDimensions,
+  type DimensionPattern,
+  type LinearUserInputs,
+  type SegmentedUserInputs,
+} from "./dim-derive";
 
 export type PartsListRow = {
   row_id: string;
@@ -21,6 +27,14 @@ export type PartsListRow = {
 
 export type EngineInput = {
   system_dimensions: Record<string, unknown>;
+  /**
+   * Optional pattern recipe (Linear / Segmented). When present, the engine
+   * runs deriveDimensions(pattern, system_dimensions) BEFORE evaluating any
+   * parts-list rows, and merges the derived dims (intermediate_count,
+   * corner_bracket_count, total_node_count, …) into scope so formulas can
+   * reference them by name.
+   */
+  dimension_pattern?: DimensionPattern;
   model_custom_dimensions?: Record<string, unknown>;
   variants?: Record<string, unknown>;
   substrate?: string;
@@ -138,8 +152,24 @@ export function evaluateModelInstance(input: EngineInput): {
     ordered = input.parts_list;
   }
 
-  // Build base scope
+  // Derive pattern-driven dimensions first so formulas can reference
+  // intermediate_count, corner_bracket_count, total_node_count, etc.
+  let derived: Record<string, unknown> = {};
+  if (input.dimension_pattern) {
+    try {
+      const userInputs = input.system_dimensions as
+        | LinearUserInputs
+        | SegmentedUserInputs;
+      derived = deriveDimensions(input.dimension_pattern, userInputs);
+    } catch (err) {
+      errors.push(`Pattern derivation error: ${(err as Error).message}`);
+    }
+  }
+
+  // Build base scope: derived dims go in first, then system_dimensions can
+  // override (so explicit user values trump derivations of the same key).
   const scope: Scope = {
+    ...derived,
     ...input.system_dimensions,
     ...(input.model_custom_dimensions ?? {}),
     substrate: input.substrate,

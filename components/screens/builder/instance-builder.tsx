@@ -4,8 +4,17 @@ import { useState, useMemo } from "react";
 import { Btn, Chip, Pill, NumInput, Select } from "@/components/ui/primitives";
 import { Icon } from "@/components/ui/icon";
 import { evaluateModelInstance, type PartsListRow } from "@/lib/rules/engine";
+import { deriveDimensions, type DimensionPattern } from "@/lib/rules/dim-derive";
+import { LinearDimensionInput, type LinearInputs } from "./dimension-input-linear";
+import { SegmentedDimensionInput, type SegmentedInputs } from "./dimension-input-segmented";
+import { ComputedDimsPanel } from "./computed-dims-panel";
 
-type SystemOption = { id: string; name: string; description: string | null };
+type SystemOption = {
+  id: string;
+  name: string;
+  description: string | null;
+  pattern: DimensionPattern | null;
+};
 type ShapeOption = { id: string; name: string };
 type ModelOption = {
   id: string;
@@ -76,13 +85,48 @@ export function InstanceBuilder({
   const [shapeId, setShapeId] = useState<string>("");
   const [substrateId, setSubstrateId] = useState<string>("");
   const [modelId, setModelId] = useState<string>("");
-  const [length, setLength] = useState<string>("24");
+  const [linearInputs, setLinearInputs] = useState<LinearInputs>({ length: 24 });
+  const [segmentedInputs, setSegmentedInputs] = useState<SegmentedInputs>({
+    segments: [{ len: 24, corner_angle: null }],
+  });
   const [variantSelections, setVariantSelections] = useState<string>("{}");
 
   const availableModels = useMemo(() => models.filter((m) => m.systemId === systemId), [models, systemId]);
   const selectedModel = availableModels.find((m) => m.id === modelId);
   const selectedSystem = systems.find((s) => s.id === systemId);
   const selectedSubstrate = substrates.find((s) => s.id === substrateId);
+
+  const pattern = selectedSystem?.pattern ?? null;
+  const primitive = pattern?.primitive ?? "linear";
+
+  // Build the system_dimensions payload for the rule engine from the active inputs.
+  const systemDimensions = useMemo(() => {
+    if (primitive === "segmented") {
+      return {
+        segments: segmentedInputs.segments,
+        spacing: segmentedInputs.spacing,
+        start_offset: segmentedInputs.start_offset,
+        end_offset: segmentedInputs.end_offset,
+        corner_offset: segmentedInputs.corner_offset,
+      };
+    }
+    return {
+      length: linearInputs.length,
+      spacing: linearInputs.spacing,
+      start_offset: linearInputs.start_offset,
+      end_offset: linearInputs.end_offset,
+    };
+  }, [primitive, linearInputs, segmentedInputs]);
+
+  // Live derived dims for the right Computed panel (separate from the model preview).
+  const derivedDims = useMemo(() => {
+    if (!pattern) return {};
+    try {
+      return deriveDimensions(pattern, systemDimensions);
+    } catch {
+      return {};
+    }
+  }, [pattern, systemDimensions]);
 
   const preview = useMemo(() => {
     if (!selectedModel) return null;
@@ -94,7 +138,8 @@ export function InstanceBuilder({
     }
     try {
       return evaluateModelInstance({
-        system_dimensions: { length: Number(length) || 0 },
+        system_dimensions: systemDimensions,
+        dimension_pattern: pattern ?? undefined,
         variants,
         substrate: selectedSubstrate?.name,
         parts_list: selectedModel.partsList,
@@ -102,7 +147,7 @@ export function InstanceBuilder({
     } catch (err) {
       return { rows: [], totals: { qty_by_alias: {} }, errors: [(err as Error).message] };
     }
-  }, [selectedModel, length, variantSelections, selectedSubstrate]);
+  }, [selectedModel, systemDimensions, pattern, variantSelections, selectedSubstrate]);
 
   const sectionStatus = (filled: boolean): "ok" | "missing" => (filled ? "ok" : "missing");
 
@@ -148,31 +193,29 @@ export function InstanceBuilder({
           </div>
         </BuilderSection>
 
-        <BuilderSection num="02" title="Dimensions" status={sectionStatus(Boolean(length))}>
-          <div style={{ display: "grid", gridTemplateColumns: "200px 1fr", gap: 14, alignItems: "center" }}>
-            <div>
-              <div className="pl-label">Length</div>
-              <span className="pl-input-group" style={{ width: 140 }}>
-                <input
-                  type="number"
-                  step="0.1"
-                  min="0"
-                  className="pl-input num-input"
-                  style={{ width: "100%" }}
-                  value={length}
-                  onChange={(e) => setLength(e.target.value)}
-                />
-                <span className="pl-input-suffix">m</span>
-              </span>
-            </div>
-            <div style={{ padding: "8px 10px", background: "var(--primary-soft)", borderRadius: 4, fontSize: 11.5, color: "var(--primary)" }}>
-              <Icon name="check" size={12} style={{ verticalAlign: "middle", marginRight: 4 }} />
-              Total <span className="mono tnum" style={{ fontWeight: 600 }}>{length || 0} m</span>
-              <span style={{ marginLeft: 6, color: "var(--ink-3)" }}>
-                · the System&apos;s dimension schema is editable in catalog
-              </span>
-            </div>
-          </div>
+        <BuilderSection
+          num="02"
+          title={primitive === "segmented" ? "Dimensions · segmented" : "Dimensions · linear"}
+          status={sectionStatus(
+            primitive === "segmented"
+              ? segmentedInputs.segments.length > 0 && segmentedInputs.segments.every((s) => s.len > 0)
+              : Boolean(linearInputs.length),
+          )}
+          hint={pattern ? undefined : "This System has no pattern set — using a single length input."}
+        >
+          {primitive === "segmented" && pattern?.primitive === "segmented" ? (
+            <SegmentedDimensionInput
+              pattern={pattern}
+              values={segmentedInputs}
+              onChange={setSegmentedInputs}
+            />
+          ) : (
+            <LinearDimensionInput
+              pattern={pattern?.primitive === "linear" ? pattern : { primitive: "linear", modifiers: {} }}
+              values={linearInputs}
+              onChange={setLinearInputs}
+            />
+          )}
         </BuilderSection>
 
         <BuilderSection num="03" title="Substrate" status={sectionStatus(Boolean(substrateId))}>
@@ -268,6 +311,9 @@ export function InstanceBuilder({
           gap: 14,
         }}
       >
+        {/* Computed dims — live as the user types */}
+        {pattern && <ComputedDimsPanel derived={derivedDims} />}
+
         <div>
           <div style={{ fontSize: 11, color: "var(--ink-4)", textTransform: "uppercase", letterSpacing: "0.06em", fontWeight: 500, marginBottom: 4 }}>
             Live MTO preview

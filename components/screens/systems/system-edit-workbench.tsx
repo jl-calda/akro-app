@@ -9,11 +9,14 @@ import {
   DimensionSchemaEditor,
   type DimensionRow,
 } from "./dimension-schema-editor";
+import { DimensionPatternBuilder } from "./dimension-pattern-builder";
+import type { DimensionPattern } from "@/lib/rules/dim-derive";
 import {
   updateAllowedShapes,
   updateAllowedSubstrates,
   updateSystemMeta,
   updateDimensionSchemaStructured,
+  updateDimensionPattern,
   publishSystem,
 } from "@/app/(app)/catalog/systems/[systemId]/actions";
 
@@ -28,6 +31,7 @@ export function SystemEditWorkbench({
   versionLabel,
   isPublished,
   initialSchema,
+  initialPattern,
   shapes,
   substrates,
   initialShapeIds,
@@ -41,12 +45,14 @@ export function SystemEditWorkbench({
   versionLabel: string;
   isPublished: boolean;
   initialSchema: DimensionRow[];
+  initialPattern: DimensionPattern | null;
   shapes: Option[];
   substrates: Option[];
   initialShapeIds: string[];
   initialSubstrateIds: string[];
   models: ModelLink[];
 }) {
+  const [showRawSchema, setShowRawSchema] = useState(false);
   const [name, setName] = useState(initialName);
   const [description, setDescription] = useState(initialDescription ?? "");
   const [shapeIds, setShapeIds] = useState<Set<string>>(new Set(initialShapeIds));
@@ -196,15 +202,53 @@ export function SystemEditWorkbench({
             </div>
           </div>
 
-          {/* ZONE 2 — Dimension schema */}
+          {/* ZONE 2 — Dimension pattern (recipe-driven) */}
           <ZoneHeader
             idx="02"
-            title="Dimension schema"
-            sub="Inputs a project user supplies at instance time. Referenced by name in Model formulas."
+            title="Dimension pattern"
+            sub="Pick the primitive shape, toggle modifiers. Derived dims appear automatically — no formula writing."
+            actions={
+              <button
+                type="button"
+                onClick={() => setShowRawSchema((v) => !v)}
+                className="pl-btn ghost sm"
+              >
+                {showRawSchema ? "Hide raw schema" : "Advanced · raw schema"}
+              </button>
+            }
           />
           <div style={{ marginBottom: 18 }}>
-            <DimensionSchemaEditor initial={schema} onSave={saveSchema} />
+            <DimensionPatternBuilder
+              versionId={versionId}
+              initial={initialPattern}
+              onSave={async (pattern) => {
+                const fd = new FormData();
+                fd.set("versionId", versionId);
+                fd.set("pattern", JSON.stringify(pattern));
+                await updateDimensionPattern(fd);
+              }}
+            />
           </div>
+          {showRawSchema && (
+            <div style={{ marginBottom: 18 }}>
+              <div
+                style={{
+                  padding: "8px 12px",
+                  background: "var(--hivis-soft)",
+                  border: "1px solid var(--hivis-line)",
+                  borderRadius: 4,
+                  fontSize: 11.5,
+                  color: "var(--hivis-ink)",
+                  marginBottom: 8,
+                }}
+              >
+                <strong>Power-user mode:</strong> raw dimension_schema editor.
+                Use the pattern builder above whenever possible; this textarea
+                bypasses derived dims and is shown for back-compat.
+              </div>
+              <DimensionSchemaEditor initial={schema} onSave={saveSchema} />
+            </div>
+          )}
 
           {/* ZONE 3 — Shapes */}
           <ZoneHeader

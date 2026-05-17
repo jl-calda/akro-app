@@ -1547,6 +1547,7 @@ export type Database = {
           created_at: string
           created_by: string | null
           default_schedule_template_id: string | null
+          dimension_pattern: Json | null
           dimension_schema: Json
           id: string
           is_published: boolean
@@ -1560,6 +1561,7 @@ export type Database = {
           created_at?: string
           created_by?: string | null
           default_schedule_template_id?: string | null
+          dimension_pattern?: Json | null
           dimension_schema?: Json
           id?: string
           is_published?: boolean
@@ -1573,6 +1575,7 @@ export type Database = {
           created_at?: string
           created_by?: string | null
           default_schedule_template_id?: string | null
+          dimension_pattern?: Json | null
           dimension_schema?: Json
           id?: string
           is_published?: boolean

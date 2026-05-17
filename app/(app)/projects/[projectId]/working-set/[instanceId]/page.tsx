@@ -28,7 +28,7 @@ export default async function SystemInstanceBuilderPage({
     await Promise.all([
       supabase
         .from("systems")
-        .select("id, name, description, system_versions(id, version, is_published)")
+        .select("id, name, description, system_versions(id, version, is_published, dimension_pattern)")
         .eq("organization_id", ctx.organizationId)
         .order("name"),
       supabase
@@ -48,11 +48,23 @@ export default async function SystemInstanceBuilderPage({
         .order("name"),
     ]);
 
-  const systems = (systemsData ?? []).map((s) => ({
-    id: s.id,
-    name: s.name,
-    description: s.description,
-  }));
+  const systems = (systemsData ?? []).map((s) => {
+    const versions = ((s.system_versions as unknown as Array<{
+      id: string;
+      version: number;
+      is_published: boolean;
+      dimension_pattern: unknown;
+    }>) ?? []).sort((a, b) => b.version - a.version);
+    const latest = versions[0];
+    return {
+      id: s.id,
+      name: s.name,
+      description: s.description,
+      pattern: (latest?.dimension_pattern as
+        | import("@/lib/rules/dim-derive").DimensionPattern
+        | null) ?? null,
+    };
+  });
   const shapes = (shapesData ?? []).map((s) => ({ id: s.id, name: s.name }));
   const substrates = (substratesData ?? []).map((s) => ({ id: s.id, name: s.name }));
 

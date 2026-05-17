@@ -98,6 +98,25 @@ export async function updateSystemMeta(formData: FormData) {
   revalidatePath(`/catalog/systems`);
 }
 
+export async function updateDimensionPattern(formData: FormData) {
+  await requireContext();
+  const supabase = await createClient();
+  const versionId = String(formData.get("versionId"));
+  const patternRaw = String(formData.get("pattern") ?? "null");
+  let pattern: unknown;
+  try {
+    pattern = JSON.parse(patternRaw);
+  } catch {
+    return { ok: false as const, error: "Invalid pattern JSON" };
+  }
+  await supabase
+    .from("system_versions")
+    .update({ dimension_pattern: pattern as never })
+    .eq("id", versionId);
+  revalidatePath(`/catalog/systems`);
+  return { ok: true as const };
+}
+
 export async function publishSystem(formData: FormData) {
   const ctx = await requireContext();
   const supabase = await createClient();

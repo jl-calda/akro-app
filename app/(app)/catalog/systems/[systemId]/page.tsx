@@ -19,7 +19,7 @@ export default async function SystemDetailPage({
       supabase
         .from("systems")
         .select(
-          "id, name, description, system_versions(id, version, dimension_schema, allowed_shapes, allowed_substrates, is_published, published_at)",
+          "id, name, description, system_versions(id, version, dimension_schema, dimension_pattern, allowed_shapes, allowed_substrates, is_published, published_at)",
         )
         .eq("id", systemId)
         .eq("organization_id", ctx.organizationId)
@@ -48,6 +48,7 @@ export default async function SystemDetailPage({
     id: string;
     version: number;
     dimension_schema: unknown;
+    dimension_pattern: unknown;
     allowed_shapes: string[] | null;
     allowed_substrates: string[] | null;
     is_published: boolean;
@@ -58,6 +59,10 @@ export default async function SystemDetailPage({
   const schema: DimensionRow[] = Array.isArray(latest?.dimension_schema)
     ? (latest!.dimension_schema as DimensionRow[])
     : [];
+
+  const pattern = latest?.dimension_pattern as
+    | import("@/lib/rules/dim-derive").DimensionPattern
+    | null;
 
   const models = (modelsData ?? []).map((m) => {
     const mvs = ((m.model_versions as unknown as { version: number; is_published: boolean }[]) ??
@@ -82,6 +87,7 @@ export default async function SystemDetailPage({
         versionLabel={`v${latest?.version ?? 1}`}
         isPublished={latest?.is_published ?? false}
         initialSchema={schema}
+        initialPattern={pattern}
         shapes={(shapesData ?? []).map((s) => ({ id: s.id, name: s.name }))}
         substrates={(substratesData ?? []).map((s) => ({ id: s.id, name: s.name }))}
         initialShapeIds={latest?.allowed_shapes ?? []}

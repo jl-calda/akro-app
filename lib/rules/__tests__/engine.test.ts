@@ -149,4 +149,77 @@ describe("rule engine — model instance evaluation", () => {
     });
     expect(out.errors.some((e) => /Cycle/.test(e))).toBe(true);
   });
+
+  it("merges pattern-derived dims into scope so formulas can reference them", () => {
+    const out = evaluateModelInstance({
+      system_dimensions: { length: 20 },
+      dimension_pattern: {
+        primitive: "linear",
+        modifiers: { spacing: { source: "user_input", default: 2 } },
+      },
+      parts_list: [
+        {
+          row_id: "stanchion",
+          item_kind: "material",
+          item_id: "m1",
+          item_version: 1,
+          // Uses derived dim directly — no need to write ceil(length/spacing)
+          count_or_qty_formula: "total_node_count",
+        },
+        {
+          row_id: "bolt",
+          item_kind: "material",
+          item_id: "m2",
+          item_version: 1,
+          count_or_qty_formula: "stanchion.qty * 4",
+        },
+      ],
+    });
+    const stanch = out.rows.find((r) => r.row_id === "stanchion");
+    const bolt = out.rows.find((r) => r.row_id === "bolt");
+    // length=20, spacing=2 → intermediate_count=10 → total_node_count=12
+    expect(stanch?.qty).toBe(12);
+    expect(bolt?.qty).toBe(48);
+  });
+
+  it("derives segmented dims for cable-lifeline-style parts list", () => {
+    const out = evaluateModelInstance({
+      system_dimensions: {
+        segments: [
+          { len: 60, corner_angle: 90 },
+          { len: 72, corner_angle: 90 },
+          { len: 54 },
+        ],
+        spacing: 2.4,
+      },
+      dimension_pattern: {
+        primitive: "segmented",
+        modifiers: {
+          spacing: { source: "user_input", default: 2.4 },
+          corner_offset: { source: "hardcoded", value: 0.5 },
+          brackets_per_corner: { source: "hardcoded", value: 2 },
+        },
+      },
+      parts_list: [
+        {
+          row_id: "cable",
+          item_kind: "material",
+          item_id: "m1",
+          item_version: 1,
+          count_or_qty_formula: "total_length",
+        },
+        {
+          row_id: "corner_brackets",
+          item_kind: "material",
+          item_id: "m2",
+          item_version: 1,
+          count_or_qty_formula: "corner_bracket_count",
+        },
+      ],
+    });
+    const cable = out.rows.find((r) => r.row_id === "cable");
+    const corners = out.rows.find((r) => r.row_id === "corner_brackets");
+    expect(cable?.qty).toBe(186); // 60+72+54
+    expect(corners?.qty).toBe(4); // 2 corners × 2 brackets
+  });
 });
