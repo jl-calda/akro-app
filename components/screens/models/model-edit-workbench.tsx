@@ -4,6 +4,19 @@ import { useState, useTransition } from "react";
 import { Btn, Chip, Pill, NumInput } from "@/components/ui/primitives";
 import { Icon } from "@/components/ui/icon";
 import { previewRule } from "@/app/(app)/catalog/models/[modelId]/actions";
+import { MaterialPicker } from "./material-picker";
+import {
+  CountSourcePicker,
+  type PickedCount,
+  pickedCountToFormula,
+  parseFormulaToPicked,
+} from "./count-source-picker";
+import {
+  GatePicker,
+  type GateCondition,
+  gateConditionsToFormula,
+  parseGateFormula,
+} from "./gate-picker";
 
 type PartsListRow = {
   row_id: string;
@@ -163,6 +176,9 @@ export function ModelEditWorkbench({
   partsList: initialPartsList,
   customDimensions,
   variants,
+  systemPattern,
+  materials,
+  allowedSubstrates,
 }: {
   modelId: string;
   versionId: string;
@@ -174,6 +190,9 @@ export function ModelEditWorkbench({
   partsList: PartsListRow[];
   customDimensions: CustomDimension[];
   variants: Variant[];
+  systemPattern: import("@/lib/rules/dim-derive").DimensionPattern | null;
+  materials: import("./material-picker").MaterialOption[];
+  allowedSubstrates: string[];
 }) {
   const [selectedRow, setSelectedRow] = useState<string | null>(initialPartsList[0]?.row_id ?? null);
   const [partsList, setPartsList] = useState<PartsListRow[]>(initialPartsList);
@@ -509,31 +528,53 @@ export function ModelEditWorkbench({
 
           {selectedRowData && (
             <>
+              {/* Material picker (replaces the UUID textarea) */}
               <div>
-                <label className="pl-label">Quantity formula</label>
-                <textarea
-                  className="pl-input mono"
-                  style={{ width: "100%", minHeight: 70, padding: 8, fontSize: 12 }}
-                  value={selectedRowData.count_or_qty_formula}
-                  onChange={(e) =>
-                    updateRow(selectedRowData.row_id, { count_or_qty_formula: e.target.value })
+                <label className="pl-label">Material</label>
+                <MaterialPicker
+                  materials={materials}
+                  selectedId={selectedRowData.item_id}
+                  onPick={(m) =>
+                    updateRow(selectedRowData.row_id, {
+                      item_id: m.id,
+                      item_kind: "material",
+                    })
                   }
                 />
-                <div style={{ marginTop: 6 }}>
-                  <FormulaCell formula={selectedRowData.count_or_qty_formula || "0"} />
-                </div>
               </div>
 
+              {/* Count source + multiplier (replaces the formula textarea) */}
               <div>
-                <label className="pl-label">Criteria gate (optional)</label>
-                <input
-                  className="pl-input mono"
-                  style={{ width: "100%", fontSize: 12 }}
-                  placeholder="substrate == 'metal_deck'"
-                  value={selectedRowData.criteria_gate ?? ""}
-                  onChange={(e) =>
+                <label className="pl-label">Quantity (pick a source, no formula needed)</label>
+                <CountSourcePicker
+                  pattern={systemPattern}
+                  siblingAliases={partsList
+                    .map((r) => r.row_id)
+                    .filter((id) => id !== selectedRowData.row_id)}
+                  value={
+                    parseFormulaToPicked(selectedRowData.count_or_qty_formula) ?? {
+                      source: "(constant)",
+                      multiplier: 1,
+                    }
+                  }
+                  onChange={(pc) =>
                     updateRow(selectedRowData.row_id, {
-                      criteria_gate: e.target.value || null,
+                      count_or_qty_formula: pickedCountToFormula(pc),
+                    })
+                  }
+                />
+              </div>
+
+              {/* Gate picker (replaces the gate text input) */}
+              <div>
+                <label className="pl-label">When does this apply?</label>
+                <GatePicker
+                  substrates={allowedSubstrates}
+                  variants={variants.map((v) => ({ key: v.key, options: v.options ?? [] }))}
+                  conditions={parseGateFormula(selectedRowData.criteria_gate)}
+                  onChange={(conds) =>
+                    updateRow(selectedRowData.row_id, {
+                      criteria_gate: gateConditionsToFormula(conds),
                     })
                   }
                 />
@@ -571,19 +612,6 @@ export function ModelEditWorkbench({
                     }
                   />
                 </div>
-              </div>
-
-              <div>
-                <label className="pl-label">Item ID (material or sub-assembly UUID)</label>
-                <input
-                  className="pl-input mono"
-                  style={{ width: "100%", fontSize: 11.5 }}
-                  value={selectedRowData.item_id}
-                  onChange={(e) =>
-                    updateRow(selectedRowData.row_id, { item_id: e.target.value })
-                  }
-                  placeholder="(UUID)"
-                />
               </div>
 
               <div style={{ borderTop: "1px solid var(--line)", paddingTop: 14 }}>
