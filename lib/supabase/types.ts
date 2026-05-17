@@ -1937,6 +1937,11 @@ export type Database = {
       }
     }
     Functions: {
+      bootstrap_tenant: {
+        Args: { _currency?: string; _name: string }
+        Returns: string
+      }
+      seed_tenant_defaults: { Args: { _org_id: string }; Returns: undefined }
       user_has_role: {
         Args: {
           _org: string
